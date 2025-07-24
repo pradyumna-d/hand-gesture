@@ -1,4 +1,5 @@
 import cv2
+import gestures
 import mediapipe as mp
 
 def detect_hand_gesture(frame, hands, mp_hands):
@@ -24,12 +25,7 @@ def detect_hand_gesture(frame, hands, mp_hands):
 
             # Simple gesture classification (example: open vs closed)
             landmarks = hand_landmarks.landmark
-            thumb_tip = landmarks[4].y
-            index_tip = landmarks[8].y
-            if abs(thumb_tip - index_tip) > 0.2:  # Adjust threshold
-                gesture = "Open Hand"
-            else:
-                gesture = "Closed Fist"
+            gesture = gestures.get_gesture(landmarks)
 
     # Overlay gesture text
     cv2.putText(frame, gesture, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)

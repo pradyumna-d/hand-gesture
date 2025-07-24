@@ -11,10 +11,10 @@ def get_middle(landmarks):
 def get_ring(landmarks):
     return [landmarks[13], landmarks[14], landmarks[15], landmarks[16]]
 
-def gget_pinky(landmarks):
+def get_pinky(landmarks):
     return [landmarks[17], landmarks[18], landmarks[19], landmarks[20]]
 
-def finger_up(finger):
-    if finger[0].y < finger[1].y < finger[2].y < finger[3].y < finger[4].y:
+def is_up(finger):
+    if finger[0].y > finger[1].y > finger[2].y > finger[3].y:
         return True
     return False
