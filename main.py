@@ -1,6 +1,17 @@
 import cv2
-import gestures
+import numpy as np
 import mediapipe as mp
+import gestures
+import base64
+from fastapi import FastAPI, WebSocket
+from starlette.websockets import WebSocketDisconnect
+import asyncio
+
+app = FastAPI()
+
+# Initialize MediaPipe Hands
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.7)
 
 def detect_hand_gesture(frame, hands, mp_hands):
     # Convert BGR to RGB
@@ -16,14 +27,12 @@ def detect_hand_gesture(frame, hands, mp_hands):
 
             # Draw landmark indices
             for idx, landmark in enumerate(hand_landmarks.landmark):
-                # Convert normalized coordinates to pixel coordinates
                 h, w, _ = frame.shape
                 cx, cy = int(landmark.x * w), int(landmark.y * h)
-                # Draw the landmark index as text
                 cv2.putText(frame, str(idx), (cx + 5, cy + 5),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 0), 1)
 
-            # Simple gesture classification (example: open vs closed)
+            # Simple gesture classification
             landmarks = hand_landmarks.landmark
             gesture = gestures.get_gesture(landmarks)
 
@@ -31,36 +40,45 @@ def detect_hand_gesture(frame, hands, mp_hands):
     cv2.putText(frame, gesture, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
     return frame
 
-
-def main():
-    # Initialize MediaPipe Hands
-    mp_hands = mp.solutions.hands
-    hands = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.7)
-
-    # Open camera
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        print("Error: Could not open camera")
-        return
-
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
     try:
         while True:
-            ret, frame = cap.read()
-            if not ret:
-                print("Error: Could not read frame")
-                break
+            # Receive frame data from browser (expecting base64-encoded JPEG)
+            data = await websocket.receive_text()
+            try:
+                # Decode base64 frame
+                img_data = base64.b64decode(data.split(",")[1] if "," in data else data)
+                np_arr = np.frombuffer(img_data, np.uint8)
+                frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
-            frame = cv2.flip(frame, 1)
-            frame = detect_hand_gesture(frame, hands, mp_hands)
-            cv2.imshow("Hand Gesture Recognition (MediaPipe)", frame)
+                if frame is None:
+                    continue
 
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+                # Process frame for gesture detection
+                frame = cv2.flip(frame, 1)  # Flip horizontally for mirror effect (corrected from 2 to 1)
+                processed_frame = detect_hand_gesture(frame, hands, mp_hands)
+
+                # Encode processed frame back to base64 JPEG
+                _, buffer = cv2.imencode(".jpg", processed_frame)
+                encoded_frame = base64.b64encode(buffer).decode("utf-8")
+                await websocket.send_text(f"data:image/jpeg;base64,{encoded_frame}")
+            except Exception as e:
+                print(f"Error processing frame: {e}")
+                continue
+    except WebSocketDisconnect:
+        print("Client disconnected")
     finally:
-        cap.release()
-        hands.close()
-        cv2.destroyAllWindows()
+        await websocket.close()
 
+async def shutdown():
+    hands.close()
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    await shutdown()
 
 if __name__ == "__main__":
-    main()
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=7069)
